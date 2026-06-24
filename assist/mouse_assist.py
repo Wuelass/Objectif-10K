@@ -12,21 +12,33 @@ from config import (
     ASSIST_DEADZONE_RADIUS_FACTOR,
     ASSIST_UPDATE_HZ,
     ASSIST_TARGET_MODE,
+    ASSIST_INPUT_MODE,
+    ASSIST_TABLET_REQUIRE_MOTION,
 )
 
 MOUSEEVENTF_MOVE = 0x0001
+TABLET_INPUT_MODE = "tablet"
 
 
 class MouseAssist:
     """
-    Déplace doucement la souris vers le cercle cible seulement si le curseur
-    se déplace déjà dans la direction de ce cercle.
+    Déplace doucement le curseur vers le cercle cible.
+
+    Mode souris : garde le comportement initial, avec une correction relative
+    seulement si le curseur part déjà vers la cible.
+
+    Mode tablette : utilise une correction absolue avec SetCursorPos, mieux
+    adaptée aux tablettes graphiques qui positionnent le curseur en absolu.
     """
 
     def __init__(self):
         self.previous_cursor = None
         self.last_move_time = 0.0
         self.user32 = ctypes.windll.user32
+        self.input_mode = str(ASSIST_INPUT_MODE).lower().strip()
+
+    def is_tablet_mode(self):
+        return self.input_mode == TABLET_INPUT_MODE
 
     def choose_target(self, cursor, target_circles):
         if not cursor or not target_circles:
@@ -44,6 +56,19 @@ class MouseAssist:
             key=lambda c: (c["x"] - cx) ** 2 + (c["y"] - cy) ** 2
         )
 
+    def move_cursor(self, cursor, dx, dy):
+        if self.is_tablet_mode():
+            # Une tablette graphique envoie souvent une position absolue.
+            # SetCursorPos applique donc directement la correction à la position
+            # détectée à l'écran au lieu d'ajouter un mouvement relatif souris.
+            target_x = int(round(cursor["x"] + dx))
+            target_y = int(round(cursor["y"] + dy))
+            self.user32.SetCursorPos(target_x, target_y)
+            return "absolute"
+
+        self.user32.mouse_event(MOUSEEVENTF_MOVE, dx, dy, 0, 0)
+        return "relative"
+
     def update(self, cursor, target_circles):
         status = {
             "enabled": ENABLE_MOUSE_ASSIST,
@@ -51,6 +76,8 @@ class MouseAssist:
             "target": None,
             "alignment": 0.0,
             "step": 0.0,
+            "input_mode": self.input_mode,
+            "move_method": None,
             "reason": "disabled" if not ENABLE_MOUSE_ASSIST else "idle",
         }
 
@@ -74,7 +101,11 @@ class MouseAssist:
         if self.previous_cursor is None:
             self.previous_cursor = cursor
             status["reason"] = "waiting_motion"
-            return status
+
+            # En mode tablette on peut déjà assister sans attendre un delta
+            # souris, car le stylet contrôle directement une position absolue.
+            if not self.is_tablet_mode() or ASSIST_TABLET_REQUIRE_MOTION:
+                return status
 
         now = time.perf_counter()
         min_interval = 1.0 / max(ASSIST_UPDATE_HZ, 1)
@@ -83,16 +114,19 @@ class MouseAssist:
             status["reason"] = "rate_limited"
             return status
 
+        previous_cursor = self.previous_cursor or cursor
+
         # Vecteur de mouvement actuel du curseur.
-        move_x = cursor["x"] - self.previous_cursor["x"]
-        move_y = cursor["y"] - self.previous_cursor["y"]
+        move_x = cursor["x"] - previous_cursor["x"]
+        move_y = cursor["y"] - previous_cursor["y"]
         move_len = math.hypot(move_x, move_y)
 
         self.previous_cursor = cursor
 
         if move_len < ASSIST_MIN_CURSOR_SPEED:
-            status["reason"] = "not_moving"
-            return status
+            if not self.is_tablet_mode() or ASSIST_TABLET_REQUIRE_MOTION:
+                status["reason"] = "not_moving"
+                return status
 
         # Vecteur du curseur vers la cible.
         to_target_x = target["x"] - cursor["x"]
@@ -113,13 +147,18 @@ class MouseAssist:
             return status
 
         # Vérifie si le curseur part déjà vers la cible.
-        alignment = (
-            (move_x * to_target_x + move_y * to_target_y)
-            / max(move_len * distance, 0.0001)
-        )
+        alignment = 1.0
+        if move_len > 0:
+            alignment = (
+                (move_x * to_target_x + move_y * to_target_y)
+                / max(move_len * distance, 0.0001)
+            )
         status["alignment"] = alignment
 
-        if alignment < ASSIST_ACTIVATION_DOT:
+        if (
+            not self.is_tablet_mode()
+            or ASSIST_TABLET_REQUIRE_MOTION
+        ) and alignment < ASSIST_ACTIVATION_DOT:
             status["reason"] = "wrong_direction"
             return status
 
@@ -136,7 +175,7 @@ class MouseAssist:
             status["reason"] = "step_too_small"
             return status
 
-        self.user32.mouse_event(MOUSEEVENTF_MOVE, dx, dy, 0, 0)
+        status["move_method"] = self.move_cursor(cursor, dx, dy)
 
         self.last_move_time = now
         status["active"] = True
