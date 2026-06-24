@@ -65,6 +65,14 @@ MAX_TARGET_CENTER_WHITE_RATIO = 0.38
 # Sécurité : mets True seulement quand tu veux activer le mouvement automatique.
 ENABLE_MOUSE_ASSIST = True
 
+# "mouse" = correction relative classique.
+# "tablet" = correction absolue adaptée aux tablettes graphiques.
+ASSIST_INPUT_MODE = "tablet"
+
+# En mode tablette, False permet à l'assist d'agir même si le stylet ne produit
+# pas un mouvement relatif de souris exploitable.
+ASSIST_TABLET_REQUIRE_MOTION = False
+
 # Force du recentrage.
 # 0.02 = très doux, 0.08 = moyen, 0.15 = fort.
 ASSIST_FORCE = 0.40
@@ -73,10 +81,10 @@ ASSIST_FORCE = 0.40
 # Évite les téléportations instantanées.
 ASSIST_MAX_STEP = 12
 
-# L'assistance se déclenche seulement si le curseur bouge déjà.
+# L'assistance se déclenche seulement si le curseur bouge déjà en mode souris.
 ASSIST_MIN_CURSOR_SPEED = 2.0
 
-# Direction nécessaire pour activer l'assistance.
+# Direction nécessaire pour activer l'assistance en mode souris.
 # 0.30 = permissif, 0.60 = strict, 0.80 = très strict.
 ASSIST_ACTIVATION_DOT = 0.55
 
@@ -87,7 +95,7 @@ ASSIST_MIN_DISTANCE = 4
 ASSIST_DEADZONE_RADIUS_FACTOR = 0.35
 
 # Fréquence max des corrections de souris.
-ASSIST_UPDATE_HZ = 360 
+ASSIST_UPDATE_HZ = 360
 
 # "nearest" = cercle le plus proche du curseur
 # "best_score" = cercle le mieux détecté
