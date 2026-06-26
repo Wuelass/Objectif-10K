@@ -43,8 +43,6 @@ MIN_CIRCULARITY_CURSOR = 0.65
 # PARAMÈTRES DÉTECTION CERCLES
 # ==================================================
 
-# Cercles avec contour blanc/gris.
-# Le centre peut changer de couleur, donc on détecte surtout le contour.
 TARGET_RING_MIN_VALUE = 155
 TARGET_RING_MAX_SATURATION = 95
 
@@ -62,41 +60,21 @@ MAX_TARGET_CENTER_WHITE_RATIO = 0.38
 # ASSISTANCE SOURIS
 # ==================================================
 
-# Sécurité : mets True seulement quand tu veux activer le mouvement automatique.
 ENABLE_MOUSE_ASSIST = True
 
-# "mouse" = correction relative classique.
-# "tablet" = correction absolue adaptée aux tablettes graphiques.
-ASSIST_INPUT_MODE = "tablet"
-
-# En mode tablette, False permet à l'assist d'agir même si le stylet ne produit
-# pas un mouvement relatif de souris exploitable.
+ASSIST_INPUT_MODE = "tablet_pulse"
 ASSIST_TABLET_REQUIRE_MOTION = False
+ASSIST_TABLET_PULSE_ENABLED = True
+ASSIST_TABLET_PULSE_MS = 35
+ASSIST_TABLET_PULSE_COOLDOWN_MS = 140
+ASSIST_TABLET_INTERRUPT_DOT = 0.10
+ASSIST_TABLET_MAX_TARGET_SHIFT = 80
 
-# Force du recentrage.
-# 0.02 = très doux, 0.08 = moyen, 0.15 = fort.
 ASSIST_FORCE = 0.40
-
-# Limite de déplacement par correction, en pixels.
-# Évite les téléportations instantanées.
 ASSIST_MAX_STEP = 12
-
-# L'assistance se déclenche seulement si le curseur bouge déjà en mode souris.
 ASSIST_MIN_CURSOR_SPEED = 2.0
-
-# Direction nécessaire pour activer l'assistance en mode souris.
-# 0.30 = permissif, 0.60 = strict, 0.80 = très strict.
 ASSIST_ACTIVATION_DOT = 0.55
-
-# Distance minimale avant d'arrêter l'assistance.
 ASSIST_MIN_DISTANCE = 4
-
-# Zone morte autour du centre du cercle selon son rayon.
 ASSIST_DEADZONE_RADIUS_FACTOR = 0.35
-
-# Fréquence max des corrections de souris.
 ASSIST_UPDATE_HZ = 360
-
-# "nearest" = cercle le plus proche du curseur
-# "best_score" = cercle le mieux détecté
 ASSIST_TARGET_MODE = "nearest"
