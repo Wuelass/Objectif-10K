@@ -19,6 +19,10 @@ from config import (
     ASSIST_TABLET_PULSE_COOLDOWN_MS,
     ASSIST_TABLET_INTERRUPT_DOT,
     ASSIST_TABLET_MAX_TARGET_SHIFT,
+    ASSIST_TABLET_PULSE_START_FORCE,
+    ASSIST_TABLET_PULSE_ACCEL,
+    ASSIST_TABLET_PULSE_MAX_STEP,
+    ASSIST_TABLET_PULSE_SNAP_DISTANCE,
 )
 
 MOUSEEVENTF_MOVE = 0x0001
@@ -36,7 +40,10 @@ class MouseAssist:
         self.tablet_armed = False
         self.tablet_target = None
         self.tablet_pulse_until = 0.0
+        self.tablet_pulse_started_at = 0.0
         self.last_tablet_pulse_time = 0.0
+        self.tablet_x = None
+        self.tablet_y = None
 
     def is_tablet_mode(self):
         return self.input_mode in {TABLET_INPUT_MODE, TABLET_PULSE_INPUT_MODE}
@@ -63,6 +70,9 @@ class MouseAssist:
         self.tablet_armed = False
         self.tablet_target = None
         self.tablet_pulse_until = 0.0
+        self.tablet_pulse_started_at = 0.0
+        self.tablet_x = None
+        self.tablet_y = None
 
     def save_tablet_target(self, target):
         self.tablet_target = {
@@ -93,18 +103,58 @@ class MouseAssist:
         self.user32.mouse_event(MOUSEEVENTF_MOVE, dx, dy, 0, 0)
         return "relative"
 
-    def update_tablet_pulse(self, status, target, distance, deadzone, alignment, move_len, now):
+    def is_tablet_pulse_active(self, now):
+        return self.tablet_target is not None and now < self.tablet_pulse_until
+
+    def start_tablet_pulse(self, cursor, target, now):
+        self.save_tablet_target(target)
+        self.tablet_armed = False
+        self.tablet_pulse_started_at = now
+        self.tablet_pulse_until = now + ASSIST_TABLET_PULSE_MS / 1000.0
+        self.last_tablet_pulse_time = now
+        self.tablet_x = cursor["x"]
+        self.tablet_y = cursor["y"]
+
+    def apply_tablet_pulse_frame(self, now):
+        if not self.tablet_target:
+            return False, 0.0
+
+        if self.tablet_x is None or self.tablet_y is None:
+            self.tablet_x = self.tablet_target["x"]
+            self.tablet_y = self.tablet_target["y"]
+
+        duration = max(ASSIST_TABLET_PULSE_MS / 1000.0, 0.001)
+        elapsed = max(now - self.tablet_pulse_started_at, 0.0)
+        progress = min(elapsed / duration, 1.0)
+
+        dx = self.tablet_target["x"] - self.tablet_x
+        dy = self.tablet_target["y"] - self.tablet_y
+        distance = math.hypot(dx, dy)
+
+        if distance <= ASSIST_TABLET_PULSE_SNAP_DISTANCE:
+            self.tablet_x = self.tablet_target["x"]
+            self.tablet_y = self.tablet_target["y"]
+        elif distance > 0:
+            force = ASSIST_TABLET_PULSE_START_FORCE + ASSIST_TABLET_PULSE_ACCEL * progress * progress
+            step = min(distance * force, ASSIST_TABLET_PULSE_MAX_STEP, distance)
+            self.tablet_x += dx / distance * step
+            self.tablet_y += dy / distance * step
+
+        self.set_cursor_pos(self.tablet_x, self.tablet_y)
+        return True, distance
+
+    def update_tablet_pulse(self, status, cursor, target, distance, deadzone, alignment, move_len, now):
         status["tablet_armed"] = self.tablet_armed
 
         if not ASSIST_TABLET_PULSE_ENABLED:
             status["reason"] = "tablet_pulse_disabled"
             return status
 
-        if self.tablet_target and now < self.tablet_pulse_until:
-            self.set_cursor_pos(self.tablet_target["x"], self.tablet_target["y"])
-            status["active"] = True
-            status["move_method"] = "absolute_pulse"
-            status["step"] = distance
+        if self.is_tablet_pulse_active(now):
+            moved, pulse_distance = self.apply_tablet_pulse_frame(now)
+            status["active"] = moved
+            status["move_method"] = "absolute_accel"
+            status["step"] = pulse_distance
             status["reason"] = "tablet_pulse_active"
             return status
 
@@ -145,16 +195,13 @@ class MouseAssist:
             status["reason"] = "tablet_pulse_cooldown"
             return status
 
-        self.save_tablet_target(target)
-        self.tablet_armed = False
-        self.tablet_pulse_until = now + ASSIST_TABLET_PULSE_MS / 1000.0
-        self.last_tablet_pulse_time = now
-        self.set_cursor_pos(target["x"], target["y"])
+        self.start_tablet_pulse(cursor, target, now)
+        moved, pulse_distance = self.apply_tablet_pulse_frame(now)
 
-        status["active"] = True
+        status["active"] = moved
         status["tablet_armed"] = False
-        status["move_method"] = "absolute_pulse"
-        status["step"] = distance
+        status["move_method"] = "absolute_accel"
+        status["step"] = pulse_distance
         status["reason"] = "tablet_pulse_start"
         return status
 
@@ -176,6 +223,16 @@ class MouseAssist:
             self.reset_tablet_state()
             return status
 
+        now = time.perf_counter()
+
+        if self.is_tablet_pulse_mode() and self.is_tablet_pulse_active(now):
+            moved, pulse_distance = self.apply_tablet_pulse_frame(now)
+            status["active"] = moved
+            status["move_method"] = "absolute_accel"
+            status["step"] = pulse_distance
+            status["reason"] = "tablet_pulse_active"
+            return status
+
         if not cursor:
             self.previous_cursor = None
             self.reset_tablet_state()
@@ -190,8 +247,6 @@ class MouseAssist:
             self.reset_tablet_state()
             status["reason"] = "target_missing"
             return status
-
-        now = time.perf_counter()
 
         if self.previous_cursor is None:
             self.previous_cursor = cursor
@@ -251,6 +306,7 @@ class MouseAssist:
         if self.is_tablet_pulse_mode():
             return self.update_tablet_pulse(
                 status,
+                cursor,
                 target,
                 distance,
                 deadzone,
